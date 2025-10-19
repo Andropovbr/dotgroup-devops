@@ -47,9 +47,10 @@ jobs:
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
           format: 'table'
-          exit-code: '0'  # don't fail build on findings, just report. Adjust as desired.
+          exit-code: '0'
+
 
       - name: Build & Push (Docker Hub)
         uses: docker/build-push-action@v6
