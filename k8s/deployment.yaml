@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: php-app
-          image: DOCKERHUB_USERNAME/php-app:latest # <-- substitua pelo seu usuário
+          image: andropovbr/php-app:latest
           ports:
             - containerPort: 80
           readinessProbe:
@@ -31,4 +31,3 @@ spec:
               port: 80
             initialDelaySeconds: 30
             periodSeconds: 30
-      # Se for usar pull de registries privados, configure imagePullSecrets aqui
