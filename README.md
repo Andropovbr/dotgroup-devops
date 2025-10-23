@@ -1,122 +1,145 @@
-# DevOps Challenge — PHP App (Docker + CI + Terraform + Kubernetes)
+# Desafio DevOps – DOT Group
 
-Este repositório entrega as etapas solicitadas no teste técnico (containerização, CI, IaC e estratégia de observabilidade) para uma aplicação PHP simples. O escopo e os artefatos foram estruturados conforme o enunciado do desafio【7†Teste Técnico - Analista DevOps】.
+Este repositório contém a infraestrutura e os artefatos para implantação de uma aplicação PHP simples em um cluster **Amazon EKS** utilizando infraestrutura como código Terraform, CI/CD com GitHub Actions e pipeline de segurança com Trivy.
 
-## Estrutura
-```
-.
-├── Dockerfile
-├── .github/
-│   └── workflows/
-│       └── main.yml
-├── k8s/
-│   ├── deployment.yaml
-│   └── service.yaml
-└── terraform/
-    ├── versions.tf
-    ├── providers.tf
-    ├── variables.tf
-    ├── vpc.tf
-    └── eks.tf
-```
+> **Observação importante:** o desafio técnico original menciona uma “Aplicação Exemplo” em PHP a ser fornecida. Como o link não foi incluído no material recebido, utilizei temporariamente um `index.php` de teste (“Hello World”) para estruturar o ambiente. Assim que a aplicação oficial for disponibilizada, bastará substituir os arquivos na pasta `app/` e gerar uma nova imagem Docker.
 
 ---
 
-## Etapa 1 — Containerização (Dockerfile)
-- Base: `php:8.2-apache` (imagem oficial, estável e com Apache embutido).
-- Multi-stage build (builder + runtime) para isolar dependências e reduzir a superfície de ataque.
-- Usuário não-root (`www-data`) no runtime.
-- Hardening básico do Apache (oculta assinatura e tokens de versão).
+## Arquitetura
 
-Caso a aplicação use Composer, basta descomentar as linhas de instalação no `Dockerfile`.
-
----
-
-## Etapa 2 — Integração Contínua (GitHub Actions)
-Pipeline em `.github/workflows/main.yml`:
-1. Checkout
-2. Build Docker com Buildx
-3. Scan de vulnerabilidades com Trivy (não falha o job por padrão; ajuste `exit-code` se quiser gatear o deploy)
-4. Push da imagem para Docker Hub (tags: `latest`, branch e SHA)
-
-**Configuração necessária (Secrets do repositório):**
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
-
-**Personalize** o `image` em `k8s/deployment.yaml` para `DOCKERHUB_USERNAME/php-app:latest`.
+- **Linguagem/Runtime**: PHP + Apache (porta 8080 no container)
+- **Container Registry**: Docker Hub (`andropovbr/php-app`)
+- **Orquestração**: Amazon EKS
+- **Infraestrutura como Código**: Terraform
+- **Observabilidade**:
+  - **Logs**: integrados com Amazon CloudWatch
+  - **Probes**: readiness/liveness configuradas no deployment para monitorar saúde da aplicação
+- **CI/CD**: GitHub Actions
+  - Build e push da imagem
+  - Scan de vulnerabilidades com Trivy
+  - Deploy automatizado no cluster EKS
 
 ---
 
-## Etapa 3 — IaC (Terraform) + Deploy (Kubernetes)
-A infraestrutura usa **AWS + EKS** (padrão de mercado, flexível, excelente integração com ecossistema CNCF). O Terraform cria:
-- **VPC (pública e privada, NAT Gateway)** — módulo `terraform-aws-modules/vpc`.
-- **Cluster EKS 1.29** com node group gerenciado — módulo `terraform-aws-modules/eks`.
+## Build da Imagem
 
-### Passos para provisionar
+Antes de rodar o pipeline, é possível testar localmente:
+
 ```bash
-cd terraform
+# build local
+docker build -t andropovbr/php-app:latest .
+
+# testar localmente
+docker run -p 8080:8080 andropovbr/php-app:latest
+
+# acessar
+curl http://localhost:8080
+```
+
+---
+
+## Deploy no EKS
+
+1. Aplicar a infraestrutura com Terraform:
+
+```bash
 terraform init
-terraform apply -auto-approve
+terraform plan
+terraform apply
 ```
 
-Após o apply, configure o kubeconfig (usando AWS CLI):
+2. Configurar acesso ao cluster:
+
 ```bash
-aws eks --region $(terraform output -raw cluster_name | sed 's/.*/us-east-1/') update-kubeconfig --name devops-challenge-eks
+aws eks update-kubeconfig --region us-east-1 --name dotgroup-devops-eks
 ```
-> Ajuste a região se necessário (`var.aws_region`).
 
-### Deploy dos manifests
+3. Implantar os manifests Kubernetes:
+
 ```bash
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-kubectl get svc php-app-svc -w
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
 ```
-O `Service` é `LoadBalancer`, expondo HTTP na porta 80.
 
-### Como estender para CD
-Existem duas abordagens:
-1. **Kubectl no GitHub Actions:** após a etapa de push da imagem, autenticar no cluster (IAM OIDC + kubeconfig) e rodar:
+4. Acompanhar status dos pods:
+
+```bash
+kubectl get pods -w
+kubectl logs <pod-name> -c php-app
+```
+
+---
+
+## Testando a Aplicação
+
+Recupere o DNS público do LoadBalancer:
+
+```bash
+kubectl get svc
+```
+
+Exemplo de saída:
+
+```
+php-app-svc   LoadBalancer   172.20.x.x   a51f596ba2cc44763b2c1b6fb15da935-20565008.us-east-1.elb.amazonaws.com   80:31389/TCP
+```
+
+Teste a aplicação:
+
+```bash
+APP_URL="http://a51f596ba2cc44763b2c1b6fb15da935-20565008.us-east-1.elb.amazonaws.com"
+curl -I $APP_URL
+curl $APP_URL/index.php
+```
+
+Saída esperada:
+```
+HTTP/1.1 200 OK
+Hello world!
+```
+
+---
+
+## Observabilidade e Segurança
+
+- **Readiness & Liveness Probes** garantem que apenas pods saudáveis recebam tráfego.  
+- **Trivy** roda no pipeline para escanear vulnerabilidades na imagem Docker.  
+- **CloudWatch Logs** centraliza os logs dos containers em tempo real.  
+- **Kubernetes Rollout** garante atualizações sem downtime.
+
+---
+
+## Próximos passos
+
+- Substituir `index.php` pelo código oficial da aplicação fornecida no desafio.
+- Ajustar pipeline para refletir qualquer dependência adicional da app.
+- (Opcional) Integrar monitoramento mais avançado (Prometheus/Grafana, OpenTelemetry).
+
+---
+
+## Implantação Contínua (CD)
+
+Atualmente, o pipeline está configurado para buildar, escanear e publicar a imagem Docker a cada `push` na branch `main`.  
+Para evoluí-lo para um **pipeline de CD (Continuous Deployment)**, bastaria adicionar uma etapa extra ao final do workflow:
+
+1. **Autenticação no cluster EKS**:  
+   Utilizar credenciais configuradas no repositório (ex.: `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`) para permitir que a GitHub Action execute `kubectl` contra o cluster.
+
+2. **Atualização do deployment no Kubernetes**:  
+   Rodar um comando que atualiza a imagem no deployment e faz o rollout automático:
    ```yaml
    - name: Deploy to EKS
-     uses: azure/k8s-deploy@v5
-     with:
-       manifests: |
-         k8s/deployment.yaml
-         k8s/service.yaml
-       images: |
-         ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
-   ```
-   Ou um `kubectl rollout restart deployment/php-app` após atualizar a imagem via patch.
-
-2. **GitOps (recomendado):** usar **Argo CD** ou **Flux** apontando para este repositório. Um commit que atualiza a tag da imagem desencadeia a reconciliação e o rollout no cluster.
-
-**Por que EKS (vs. ECS/Fargate)?**
-- Padrão CNCF, portabilidade, facilidade para acoplar observabilidade (Prometheus/Grafana/Loki), service mesh, ingress controllers e escalabilidade nativa de workloads variados. Para times que buscam maturidade DevOps e autonomia dos squads, EKS tende a ser vantajoso.
+     run: |
+       aws eks update-kubeconfig --region us-east-1 --name dotgroup-devops-eks
+       kubectl set image deployment/php-app php-app=andropovbr/php-app:latest
+       kubectl rollout status deployment/php-app
 
 ---
 
-## Etapa 4 — Observabilidade (descrição)
-**Stack sugerida:**
-- **Prometheus** + **Grafana** para métricas e dashboards.
-- **Loki** para logs centralizados (com Promtail).
-- **Alertmanager** para alertas baseados em SLOs.
+## Autor
 
-**3 métricas essenciais do dashboard de saúde:**
-1. **Taxa de erro (5xx / total de reqs)** — disponibilidade percebida.
-2. **Latência p95/p99** — experiência do usuário sob pico.
-3. **Uso de CPU/Memória por pod** — capacidade e saturação.
-
-**Extras úteis:**
-- **HPA** (Horizontal Pod Autoscaler) baseado em CPU/memória ou métricas customizadas (RPS/latência).
-- **Ingress + TLS** (ALB Ingress Controller no EKS ou Nginx Ingress).
-
----
-
-## Notas finais
-- Alinhei a entrega às etapas e expectativas do enunciado (Dockerfile otimizado e seguro, CI com scan + push, IaC para EKS e manifestos K8s), conforme solicitado【7†Teste Técnico - Analista DevOps】.
-- Para simplificar a avaliação, usei módulos oficiais de VPC/EKS e deixei variáveis com defaults.
-
-## Próximos passos (opcionais)
-- Adicionar pipeline de **CD** (kubectl ou GitOps).
-- Habilitar **ECR** (em vez de Docker Hub) e usar OIDC do GitHub para push sem secrets.
-- Adicionar **Ingress** e **cert-manager** para HTTPS.
+**André Santos**  
+- GitHub: [@andropovbr](https://github.com/andropovbr)  
+- Docker Hub: [andropovbr/php-app](https://hub.docker.com/r/andropovbr/php-app)  
+- Infraestrutura e CI/CD desenvolvidos para desafio técnico DOT Group.

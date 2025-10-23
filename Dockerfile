@@ -1,47 +1,48 @@
-# syntax=docker/dockerfile:1.6
-#
-# Multi-stage build for a simple PHP web app
-# - Uses official PHP + Apache base image
-# - Copies only what is needed to the runtime image
-# - Runs as a non-root user (www-data) for better security
-#
-# Stage 1: builder — install PHP extensions and prepare app
-FROM php:8.2-apache AS builder
+##############################################
+# Primeiro estágio: Build da aplicação
+##############################################
+FROM php:8.2-cli AS build
 
-# Enable commonly needed PHP extensions (adjust to match the app's needs)
-RUN docker-php-ext-install pdo pdo_mysql
+# Define diretório de trabalho
+WORKDIR /app
 
-# Enable Apache modules (rewrite is common for many PHP apps)
-RUN a2enmod rewrite
+# Copia a aplicação para o container de build
+COPY app/ ./
 
-WORKDIR /var/www/html
-
-# Copy application source
-# If your repo has vendor/ or build steps (Composer), add them here.
-COPY . .
-
-# Example Composer install (uncomment if the app uses Composer):
+# Instalar dependências com Composer
+# RUN apt-get update && apt-get install -y git unzip
 # COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-# RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+# RUN composer install --no-dev --optimize-autoloader
 
-# Stage 2: runtime — minimal runtime image
+# Ajusta permissões de arquivos e pastas
+RUN find . -type d -exec chmod 755 {} \; && \
+    find . -type f -exec chmod 644 {} \;
+
+##############################################
+# Segundo estágio: Runtime otimizado
+##############################################
 FROM php:8.2-apache AS runtime
 
-# Create an unprivileged user if needed; the image already has www-data
-# Ensure Apache runs as www-data by default; we also set an explicit User
-RUN sed -ri 's/^#?User .*/User www-data/' /etc/apache2/apache2.conf &&         sed -ri 's/^#?Group .*/Group www-data/' /etc/apache2/apache2.conf
+# Definir porta customizada, para evitar rodar Apache como root
+ENV APACHE_LISTEN_PORT=8080
 
-# Security hardening: avoid exposing version signatures
-RUN echo 'ServerTokens Prod\nServerSignature Off' > /etc/apache2/conf-available/security.conf &&         a2enconf security
+# Atualiza configuração do Apache para usar a porta 8080
+RUN sed -i "s/Listen 80/Listen ${APACHE_LISTEN_PORT}/" /etc/apache2/ports.conf \
+    && sed -i "s/:80/:${APACHE_LISTEN_PORT}/" /etc/apache2/sites-available/000-default.conf
 
-WORKDIR /var/www/html
+# Copiar os arquivos necessários do stage de build para a imagem final
+COPY --from=build /app /var/www/html
 
-# Copy final app files from builder stage
-COPY --from=builder /var/www/html /var/www/html
-
-# Fix permissions: make app owned by www-data
+# Ajusta permissões para o usuário não-root
 RUN chown -R www-data:www-data /var/www/html
 
-EXPOSE 80
+# Altera usuário ativo
 USER www-data
+
+# Expõe a porta configurada
+EXPOSE 8080
+
+# Explicação: O Apache usa um processo master para escutar na porta configurada
+# e forks de workers rodando como www-data para servir as requisições.
+# Rodar o container como www-data reduz a superfície de ataque.
 CMD ["apache2-foreground"]

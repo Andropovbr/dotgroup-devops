@@ -1,0 +1,38 @@
+# Arquivos de estado — contêm dados sensíveis
+*.tfstate
+*.tfstate.backup
+
+# Diretório de cache do Terraform (criado ao rodar `terraform init`)
+.terraform/
+.terraform.lock.hcl
+
+# Planos de execução locais (gerados ao rodar `terraform plan -out=...`)
+*.tfplan
+
+# Logs e arquivos temporários
+*.log
+*.bak
+*.tmp
+
+# Arquivos de credenciais ou variáveis locais (nunca versionar)
+*.tfvars
+*.tfvars.json
+terraform.tfvars
+secrets.auto.tfvars
+*.env
+
+# VS Code e editores em geral
+.vscode/
+.idea/
+*.swp
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Dependências geradas pelo AWS CLI ou SDK
+terraform/aws/
+**/*.so
+**/*.zip
+**/*.json
+

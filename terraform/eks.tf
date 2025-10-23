@@ -2,12 +2,12 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "20.24.3"
 
-  cluster_name                   = "devops-challenge-eks"
+  cluster_name                   = "dotgroup-devops-eks"
   cluster_version                = "1.29"
   cluster_endpoint_public_access = true
 
   vpc_id     = module.vpc.vpc_id
-  subnet_ids = concat(module.vpc.private_subnets, module.vpc.public_subnets)
+  subnet_ids = module.vpc.public_subnets
 
   eks_managed_node_groups = {
     default = {
